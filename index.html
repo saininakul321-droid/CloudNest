@@ -1,0 +1,222 @@
+```html
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CloudNest - Private Chat</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #111827, #312e81, #581c87);
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.card {
+    width: 100%;
+    max-width: 500px;
+    background: #ffffff12;
+    border: 1px solid #ffffff30;
+    border-radius: 20px;
+    padding: 25px;
+    box-shadow: 0 15px 50px #0005;
+}
+
+h1 { text-align: center; margin-top: 0; }
+.subtitle { text-align: center; color: #ddd6fe; }
+
+input, button {
+    width: 100%;
+    padding: 13px;
+    margin-top: 12px;
+    border-radius: 10px;
+    border: 0;
+    font-size: 16px;
+}
+
+input { background: #fff; color: #111827; }
+
+button {
+    background: #8b5cf6;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover { background: #7c3aed; }
+
+#chat { display: none; }
+
+#messages {
+    height: 280px;
+    overflow-y: auto;
+    background: #11182780;
+    padding: 12px;
+    border-radius: 10px;
+    margin-top: 15px;
+    overflow-wrap: anywhere;
+}
+
+.message {
+    background: #ffffff18;
+    padding: 9px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+#status {
+    text-align: center;
+    color: #fde68a;
+    margin-top: 12px;
+    overflow-wrap: anywhere;
+}
+
+.small { font-size: 13px; color: #ddd6fe; }
+</style>
+</head>
+
+<body>
+<div class="card">
+    <h1>☁️ CloudNest</h1>
+    <p class="subtitle">Your space. Your people. Your chat.</p>
+
+    <section id="entry">
+        <input id="name" placeholder="अपना नाम लिखो" maxlength="30">
+        <input id="room" placeholder="Room Code" maxlength="40">
+        <input id="password" type="password" placeholder="Room Password" maxlength="100">
+
+        <button id="createBtn">Create Room</button>
+        <button id="joinBtn">Join Room</button>
+
+        <p class="small">
+            यह शुरुआती इंटरफेस है। निजी रूम का सुरक्षित एक्सेस चालू करने के लिए
+            डेटाबेस के नियम और सर्वर-साइड पासवर्ड जाँच सेट करनी होगी।
+        </p>
+    </section>
+
+    <section id="chat">
+        <h2 id="roomTitle"></h2>
+        <div id="messages"></div>
+
+        <input id="message" placeholder="अपना मैसेज लिखो..." maxlength="2000">
+        <button id="sendBtn">Send Message</button>
+        <button id="leaveBtn">Leave Room</button>
+    </section>
+
+    <div id="status"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from
+  "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+
+import {
+  getAuth,
+  signInAnonymously
+} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+
+import {
+  getDatabase,
+  ref,
+  get,
+  set,
+  push,
+  onChildAdded
+} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAj139jGfrgezVsQqpS40ojZL8rIyYGISg",
+  authDomain: "cloudnest-30961.firebaseapp.com",
+  databaseURL: "https://cloudnest-30961-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cloudnest-30961",
+  storageBucket: "cloudnest-30961.firebasestorage.app",
+  messagingSenderId: "472129729367",
+  appId: "1:472129729367:web:ce61f3b884f2384b03c412",
+  measurementId: "G-GXXWJVJ2CN"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+const $ = id => document.getElementById(id);
+let currentRoom = "";
+let stopListening = null;
+
+function status(text) {
+    $("status").textContent = text;
+}
+
+try {
+    await signInAnonymously(auth);
+    status("Firebase से कनेक्शन तैयार है।");
+} catch (error) {
+    status("Firebase login नहीं हुआ। Authentication और Database Rules जाँचें।");
+    console.error(error);
+}
+
+function validInputs() {
+    const name = $("name").value.trim();
+    const room = $("room").value.trim();
+    const password = $("password").value;
+
+    if (!name || !room || !password) {
+        status("नाम, Room Code और Password तीनों भरो।");
+        return false;
+    }
+
+    if (!/^[a-zA-Z0-9_-]{3,40}$/.test(room)) {
+        status("Room Code में 3–40 English अक्षर, अंक, _ या - इस्तेमाल करो।");
+        return false;
+    }
+
+    if (!auth.currentUser) {
+        status("Firebase login तैयार नहीं है। पेज रीफ्रेश करके कोशिश करो।");
+        return false;
+    }
+
+    return true;
+}
+
+/*
+  ध्यान दें:
+  इस शुरुआती संस्करण में Create/Join को जानबूझकर रोका गया है।
+  केवल ब्राउज़र कोड से पासवर्ड की सुरक्षित जाँच और मालिक के अधिकार
+  लागू नहीं किए जा सकते। उसके लिए trusted server-side validation चाहिए।
+*/
+
+$("createBtn").addEventListener("click", () => {
+    if (!validInputs()) return;
+    status("अभी रूम बनाना चालू नहीं है। पहले सुरक्षित room validation सेट करना है।");
+});
+
+$("joinBtn").addEventListener("click", () => {
+    if (!validInputs()) return;
+    status("अभी Join चालू नहीं है। पहले सुरक्षित room validation सेट करना है।");
+});
+
+$("sendBtn").addEventListener("click", () => {
+    status("पहले सुरक्षित तरीके से रूम में शामिल होना सेट करना है।");
+});
+
+$("leaveBtn").addEventListener("click", () => {
+    if (stopListening) stopListening();
+    stopListening = null;
+    currentRoom = "";
+    $("chat").style.display = "none";
+    $("entry").style.display = "block";
+    status("तुम रूम से बाहर आ गए।");
+});
+</script>
+</body>
+</html>
+```
